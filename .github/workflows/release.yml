@@ -88,3 +88,25 @@ jobs:
             -H "Authorization: Bearer $GH_TOKEN" \
             "https://api.github.com/repos/roniel-rhack/homebrew-tap/dispatches" \
             -d "{\"event_type\":\"rondo-release\",\"client_payload\":{\"version\":\"${TAG_NAME}\"}}"
+
+  aur:
+    name: Update AUR
+    needs: release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Update pkgver in PKGBUILD
+        env:
+          TAG_NAME: ${{ github.ref_name }}
+        run: sed -i "s/^pkgver=.*/pkgver=${TAG_NAME#v}/" aur/PKGBUILD
+
+      - name: Publish to AUR
+        uses: KSXGitHub/github-actions-deploy-aur@v3.0.1
+        with:
+          pkgname: rondo
+          pkgbuild: ./aur/PKGBUILD
+          commit_username: Roniel Lopez
+          commit_email: roniel.rack@gmail.com
+          ssh_private_key: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
+          updpkgsums: true
