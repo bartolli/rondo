@@ -8,12 +8,16 @@
 
 <p align="center">
   <a href="https://github.com/roniel-rhack/rondo/releases/latest"><img src="https://img.shields.io/github/v/tag/roniel-rhack/rondo?style=flat-square&amp;label=release&amp;color=00bcd4" alt="Release"></a>
+  <a href="https://github.com/roniel-rhack/rondo/actions"><img src="https://img.shields.io/github/actions/workflow/status/roniel-rhack/rondo/ci.yml?style=flat-square&amp;label=CI" alt="CI"></a>
+  <a href="https://goreportcard.com/report/github.com/roniel-rhack/rondo"><img src="https://goreportcard.com/badge/github.com/roniel-rhack/rondo?style=flat-square" alt="Go Report Card"></a>
   <a href="https://github.com/roniel-rhack/rondo/blob/main/LICENSE"><img src="https://img.shields.io/github/license/roniel-rhack/rondo?style=flat-square&amp;color=00bcd4" alt="License"></a>
   <a href="https://go.dev/"><img src="https://img.shields.io/badge/Go-1.23+-00ADD8?style=flat-square&amp;logo=go&amp;logoColor=white" alt="Go"></a>
 </p>
 
 <p align="center">
-  Fast, keyboard-driven, and built with Go and the <a href="https://charm.sh">Charm</a> ecosystem.
+  RonDO is a single-binary terminal app for developers who want distraction-free productivity<br>
+  without leaving their terminal. Tasks, journal, and Pomodoro timer in one keyboard-driven<br>
+  interface — backed by local SQLite. No accounts, no cloud, no config required.
 </p>
 
 ---
@@ -21,14 +25,34 @@
 <p align="center">
   <img src="assets/tasks.png" width="720" alt="Task management view">
 </p>
+<p align="center"><em>Task management with subtasks, priorities, and time tracking</em></p>
 
 <p align="center">
   <img src="assets/journal.png" width="720" alt="Journal view">
 </p>
+<p align="center"><em>Daily journal with timestamped entries and smart date labels</em></p>
 
 ---
 
+## Contents
+
+- [Install](#install)
+- [Quick Start](#quick-start)
+- [Features](#features)
+- [CLI](#cli-mode)
+- [Keyboard Shortcuts](#keyboard-shortcuts)
+- [Data & Config](#data--config)
+- [Development](#development)
+- [Architecture](#architecture)
+- [License](#license)
+
 ## Install
+
+### Go
+
+```bash
+go install github.com/roniel-rhack/rondo/cmd/todo@latest
+```
 
 ### Homebrew
 
@@ -52,32 +76,43 @@ go build -o rondo ./cmd/todo
 mv rondo /usr/local/bin/
 ```
 
+## Quick Start
+
+```bash
+rondo                              # Launch the TUI
+rondo add "My first task"          # Add a task from the CLI
+rondo journal "Getting started"    # Write a journal entry
+rondo list                         # See all tasks
+```
+
+All data is stored locally at `~/.todo-app/` — no setup needed.
+
 ## Features
 
 ### Task Management
 
-- **Full CRUD** with validated forms
-- **Subtasks** with completion tracking and progress bar
+- **Full CRUD** — create, view, edit, and delete tasks with validated forms
+- **Subtasks** — completion tracking with progress bar
 - **Status workflow** — Pending, In Progress, Done
 - **Priority levels** — Low, Medium, High, Urgent (color-coded)
-- **Due dates** with sort support
-- **Tags** — comma-separated, filterable with tag bar (`F4`)
-- **Recurring tasks** — daily, weekly, monthly, or yearly recurrence
+- **Due dates** — with overdue detection and sort support
+- **Tags** — comma-separated, filterable
+- **Recurring tasks** — daily, weekly, monthly, or yearly; auto-spawns next on completion
 - **Task dependencies** — mark tasks as blocked by others
-- **Time logging** — log time spent on tasks from the detail panel
-- **Sorting** by creation date, due date, or priority (`F1`/`F2`/`F3`)
-- **Fuzzy search** — filter tasks with `/`
+- **Time logging** — log time spent with optional notes
+- **Sorting** — by creation date, due date, or priority
+- **Fuzzy search** — instant filter across tasks
 
 ### Productivity Tools
 
-- **Pomodoro timer** — full work/break cycles with configurable durations (`p`)
+- **Pomodoro timer** — full work/break cycles with configurable durations
   - Work → Short Break → Work → ... → Long Break (4-session sets)
-  - Phase-aware timer: 🍅 work, ☕ short break, 🌿 long break
-  - Cycle indicator (●●●○), terminal bell on completion
-  - Configurable via settings form (`P`) or `config.json`
-- **Statistics overlay** — task counts, priority breakdown, tag cloud, focus sessions, daily goal, streaks (`G`)
-- **Export** — Markdown or JSON, with optional journal inclusion (`X`)
-- **Undo** — revert the last destructive action (`Ctrl+Z`)
+  - Phase-aware: work, short break, long break with distinct indicators
+  - Cycle progress indicator, terminal bell on completion
+  - Configurable via settings form or `config.json`
+- **Statistics overlay** — task counts, priority breakdown, focus sessions, streaks
+- **Export** — Markdown or JSON, with optional journal inclusion
+- **Undo** — revert the last destructive action
 
 ### Daily Journal
 
@@ -89,20 +124,41 @@ mv rondo /usr/local/bin/
 
 ### Interface
 
-- **Two-panel layout** — list + detail with `1`/`2` focus switching
-- **Resizable panels** — adjust split ratio with `<`/`>`
+- **Two-panel layout** — list + detail with resizable split
 - **Four tabs** — All, Active, Done, Journal (live counts)
 - **Vim-style navigation** — `j`/`k` everywhere
 - **Context-sensitive status bar** — keybinding hints update per panel
-- **Modal forms** — Huh-powered with Dracula theme
-- **Confirmation dialogs** for all destructive actions
-- **Help overlay** — `?` for full keybinding reference
-- **Config file** — persistent settings at `~/.todo-app/config.json`
-- **Auto backups** — daily SQLite backups at `~/.todo-app/backups/`
+- **Modal forms** — validated input with Dracula theme
+- **Confirmation dialogs** — for all destructive actions
+- **Help overlay** — press `?` for the full keybinding reference
+- **Auto backups** — daily SQLite backups
 
-### CLI Mode
+## CLI Mode
 
 Full-featured CLI with styled terminal output (auto-detected), JSON support, and shell completions.
+
+#### Global Flags
+
+| Flag | Description |
+|------|-------------|
+| `--format table\|json\|plain` | Output format (default: table) |
+| `--json` | Shorthand for `--format json` |
+| `-q, --quiet` | Suppress non-essential output |
+| `--no-color` | Disable ANSI colors (auto-detected when piped) |
+
+#### Basic Usage
+
+```bash
+rondo add "Buy groceries" --priority high --due 2026-03-15
+rondo list --status pending --sort priority
+rondo done 3
+rondo show 3
+rondo journal "Productive day"
+rondo stats
+```
+
+<details>
+<summary><strong>All CLI commands</strong></summary>
 
 ```bash
 # Tasks
@@ -141,23 +197,18 @@ rondo focus status
 rondo focus stats --days 14
 
 # Utilities
-rondo stats                        # Task + focus summary
+rondo stats
 rondo export --format json --journal --output backup.json
-rondo config list                  # View all settings
+rondo config list
 rondo config set focus.work_duration_min 30
-rondo completion zsh               # Shell completions
+rondo completion zsh
 ```
 
-#### Global Flags
-
-| Flag | Description |
-|------|-------------|
-| `--format table\|json` | Output format (default: table) |
-| `--json` | Shorthand for `--format json` |
-| `-q, --quiet` | Suppress non-essential output |
-| `--no-color` | Disable ANSI colors (auto-detected when piped) |
+</details>
 
 ## Keyboard Shortcuts
+
+> **Start here:** `a` to add, `j`/`k` to navigate, `s` to change status, `Tab` to switch tabs, `?` for help.
 
 ### Global
 
@@ -168,12 +219,15 @@ rondo completion zsh               # Shell completions
 | `<` / `>` | Resize panels |
 | `Esc` | Return to list / clear filter |
 | `?` | Help overlay |
-| `p` | Pomodoro timer (start / stop / break) |
+| `p` | Pomodoro timer |
 | `P` | Pomodoro settings |
-| `X` | Export |
 | `G` | Statistics |
+| `X` | Export |
 | `Ctrl+Z` | Undo last action |
 | `q` | Quit |
+
+<details>
+<summary><strong>Panel-specific shortcuts</strong></summary>
 
 ### Tasks — Panel 1
 
@@ -220,7 +274,32 @@ rondo completion zsh               # Shell completions
 | `e` | Edit entry |
 | `d` | Delete entry |
 
-## Architecture
+</details>
+
+## Data & Config
+
+| Path | Purpose |
+|------|---------|
+| `~/.todo-app/todo.db` | SQLite database (WAL mode) |
+| `~/.todo-app/config.json` | Persistent settings |
+| `~/.todo-app/backups/` | Daily auto-backups |
+
+## Development
+
+Requires **Go 1.23+**.
+
+```bash
+go build -o rondo ./cmd/todo   # Build
+go run ./cmd/todo              # Run
+go test ./...                  # Test
+go vet ./...                   # Vet
+go mod tidy                    # Tidy deps
+```
+
+Contributions welcome — please open an issue first for feature discussions.
+
+<details>
+<summary><strong>Architecture</strong></summary>
 
 ```
 cmd/todo/main.go                # Entry point (TUI + CLI dispatch)
@@ -254,7 +333,8 @@ internal/
   config/
     config.go                   # JSON config (~/.todo-app/config.json)
   database/
-    db.go                       # SQLite connection + backup
+    db.go                       # SQLite connection + daily backup
+    backup.go                   # Backup rotation logic
   export/
     export.go                   # Markdown + JSON export writers
   focus/
@@ -266,34 +346,30 @@ internal/
   task/
     task.go                     # Task & Subtask domain types
     store.go                    # Task SQLite repository
+    deps.go                     # Task dependency cycle detection
     recur.go                    # Recurring task logic
     timelog.go                  # Time log model
   ui/
-    colors.go                   # Shared color palette
+    colors.go                   # Shared color palette (adaptive light/dark)
     views.go                    # Rendering (tabs, detail, status bar, dialogs)
     form.go                     # Huh form builders
+    markdown.go                 # Markdown rendering
+    overdue.go                  # Due date classification
+    stats.go                    # Sparkline rendering
 ```
 
 Follows the **Bubbletea MVU** (Model-Update-View) pattern. All data persists in a single SQLite database at `~/.todo-app/todo.db` (WAL mode, single connection, `ON DELETE CASCADE`).
 
-## Development
-
-```bash
-go build ./cmd/todo     # Build
-go run ./cmd/todo       # Run
-go test ./...           # Test
-go vet ./...            # Vet
-go mod tidy             # Tidy deps
-```
+</details>
 
 ## Built With
 
-[Bubbletea](https://github.com/charmbracelet/bubbletea) ·
-[Bubbles](https://github.com/charmbracelet/bubbles) ·
-[Lip Gloss](https://github.com/charmbracelet/lipgloss) ·
-[Huh](https://github.com/charmbracelet/huh) ·
-[Cobra](https://github.com/spf13/cobra) ·
-[modernc.org/sqlite](https://pkg.go.dev/modernc.org/sqlite)
+[Bubbletea](https://github.com/charmbracelet/bubbletea) (TUI) ·
+[Bubbles](https://github.com/charmbracelet/bubbles) (components) ·
+[Lip Gloss](https://github.com/charmbracelet/lipgloss) (styling) ·
+[Huh](https://github.com/charmbracelet/huh) (forms) ·
+[Cobra](https://github.com/spf13/cobra) (CLI) ·
+[modernc.org/sqlite](https://pkg.go.dev/modernc.org/sqlite) (database)
 
 ## License
 
