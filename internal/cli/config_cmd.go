@@ -35,6 +35,48 @@ var configKeys = map[string]configKey{
 			return nil
 		},
 	},
+	"date_format": {
+		description: "Date format (Go layout, e.g. 02.01.2006)",
+		get:         func(c config.Config) string { return c.DateFormat },
+		set: func(c *config.Config, val string) error {
+			val = strings.TrimSpace(val)
+			if val == "" {
+				return fmt.Errorf("date_format cannot be empty")
+			}
+			c.DateFormat = val
+			if strings.TrimSpace(c.DateTimeFormat) == "" {
+				c.DateTimeFormat = c.DateFormat + " " + c.TimeFormat
+			}
+			return nil
+		},
+	},
+	"time_format": {
+		description: "Time format (Go layout, e.g. 15:04 or 03:04 PM)",
+		get:         func(c config.Config) string { return c.TimeFormat },
+		set: func(c *config.Config, val string) error {
+			val = strings.TrimSpace(val)
+			if val == "" {
+				return fmt.Errorf("time_format cannot be empty")
+			}
+			c.TimeFormat = val
+			if strings.TrimSpace(c.DateTimeFormat) == "" {
+				c.DateTimeFormat = c.DateFormat + " " + c.TimeFormat
+			}
+			return nil
+		},
+	},
+	"datetime_format": {
+		description: "Date+time format (Go layout, e.g. 02.01.2006 15:04)",
+		get:         func(c config.Config) string { return c.DateTimeFormat },
+		set: func(c *config.Config, val string) error {
+			val = strings.TrimSpace(val)
+			if val == "" {
+				return fmt.Errorf("datetime_format cannot be empty")
+			}
+			c.DateTimeFormat = val
+			return nil
+		},
+	},
 	"focus.work_duration_min": {
 		description: "Work session duration in minutes (1–120)",
 		get:         func(c config.Config) string { return strconv.Itoa(c.Focus.WorkDuration) },
@@ -134,6 +176,9 @@ var configKeys = map[string]configKey{
 // orderedConfigKeys defines the display order for config list.
 var orderedConfigKeys = []string{
 	"panel_ratio",
+	"date_format",
+	"time_format",
+	"datetime_format",
 	"focus.work_duration_min",
 	"focus.short_break_duration_min",
 	"focus.long_break_duration_min",

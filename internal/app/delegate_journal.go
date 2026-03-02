@@ -4,19 +4,23 @@ import (
 	"fmt"
 	"io"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/bubbles/list"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
+	"github.com/roniel/todo-app/internal/config"
 	"github.com/roniel/todo-app/internal/journal"
 	"github.com/roniel/todo-app/internal/ui"
 )
 
-type noteDelegate struct{}
+type noteDelegate struct {
+	cfg config.Config
+}
 
-func newNoteDelegate() noteDelegate {
-	return noteDelegate{}
+func newNoteDelegate(cfg config.Config) noteDelegate {
+	return noteDelegate{cfg: cfg}
 }
 
 func (d noteDelegate) Height() int  { return 1 }
@@ -33,7 +37,7 @@ func (d noteDelegate) Render(w io.Writer, m list.Model, index int, item list.Ite
 	isSelected := index == m.Index()
 	availWidth := m.Width()
 
-	dateLabel := n.DateTitle()
+	dateLabel := d.cfg.FormatNoteTitle(n.Date, time.Now())
 	countLabel := fmt.Sprintf("%d entries", len(n.Entries))
 
 	if n.Hidden {

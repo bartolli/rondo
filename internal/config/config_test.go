@@ -5,12 +5,22 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 func TestDefaultConfig(t *testing.T) {
 	cfg := DefaultConfig()
 	if cfg.PanelRatio != 0.4 {
 		t.Errorf("DefaultConfig().PanelRatio = %v, want 0.4", cfg.PanelRatio)
+	}
+	if cfg.DateFormat != "2006-01-02" {
+		t.Errorf("DefaultConfig().DateFormat = %q, want 2006-01-02", cfg.DateFormat)
+	}
+	if cfg.TimeFormat != "15:04" {
+		t.Errorf("DefaultConfig().TimeFormat = %q, want 15:04", cfg.TimeFormat)
+	}
+	if cfg.DateTimeFormat != "2006-01-02 15:04" {
+		t.Errorf("DefaultConfig().DateTimeFormat = %q, want 2006-01-02 15:04", cfg.DateTimeFormat)
 	}
 }
 
@@ -266,5 +276,21 @@ func TestRoundtrip_JSON(t *testing.T) {
 
 	if decoded.PanelRatio != original.PanelRatio {
 		t.Errorf("roundtrip PanelRatio = %v, want %v", decoded.PanelRatio, original.PanelRatio)
+	}
+}
+
+func TestFormatFunctions(t *testing.T) {
+	cfg := Config{DateFormat: "02.01.2006", TimeFormat: "15:04", DateTimeFormat: "02.01.2006 15:04"}
+	cfg.validate()
+
+	ts := time.Date(2026, 3, 2, 21, 7, 0, 0, time.Local)
+	if got := cfg.FormatDate(ts); got != "02.03.2026" {
+		t.Errorf("FormatDate = %q, want 02.03.2026", got)
+	}
+	if got := cfg.FormatTime(ts); got != "21:07" {
+		t.Errorf("FormatTime = %q, want 21:07", got)
+	}
+	if got := cfg.FormatDateTime(ts); got != "02.03.2026 21:07" {
+		t.Errorf("FormatDateTime = %q, want 02.03.2026 21:07", got)
 	}
 }
