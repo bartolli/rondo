@@ -28,6 +28,7 @@ type keyMap struct {
 	Undo          key.Binding
 	Stats         key.Binding
 	Blocker       key.Binding
+	Note          key.Binding
 	FocusSettings key.Binding
 }
 
@@ -129,6 +130,10 @@ var keys = keyMap{
 	Blocker: key.NewBinding(
 		key.WithKeys("b"),
 		key.WithHelp("b", "blockers"),
+	),
+	Note: key.NewBinding(
+		key.WithKeys("n"),
+		key.WithHelp("n", "notes"),
 	),
 	FocusSettings: key.NewBinding(
 		key.WithKeys("P"),

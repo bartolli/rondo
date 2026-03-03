@@ -67,7 +67,8 @@ func RenderTabs(activeTab int, allCount, activeCount, doneCount, journalCount in
 // RenderDetail renders the task detail panel content.
 // subtaskIdx indicates which subtask has the cursor (-1 for none).
 // detailFocused controls whether the subtask cursor is shown.
-func RenderDetail(t *task.Task, width int, subtaskIdx int, detailFocused bool, cfg config.Config) string {
+// noteIdx and notesFocused control the notes cursor when in note navigation mode.
+func RenderDetail(t *task.Task, width int, subtaskIdx int, detailFocused bool, noteIdx int, notesFocused bool, cfg config.Config) string {
 	if t == nil {
 		return lipgloss.NewStyle().
 			Foreground(Gray).
@@ -147,6 +148,15 @@ func RenderDetail(t *task.Task, width int, subtaskIdx int, detailFocused bool, c
 		sections = append(sections, RenderMarkdown(t.Description, width-2))
 	}
 
+	// Metadata
+	if len(t.Metadata) > 0 {
+		var pairs []string
+		for k, v := range t.Metadata {
+			pairs = append(pairs, k+"="+v)
+		}
+		sections = append(sections, labelStyle().Render("Metadata")+valueStyle().Render(strings.Join(pairs, ", ")))
+	}
+
 	// Subtasks
 	if len(t.Subtasks) > 0 {
 		sections = append(sections, "")
@@ -159,9 +169,10 @@ func RenderDetail(t *task.Task, width int, subtaskIdx int, detailFocused bool, c
 		sections = append(sections, labelStyle().Render("Subtasks")+valueStyle().Render(fmt.Sprintf("%d/%d", doneCount, len(t.Subtasks))))
 		sections = append(sections, renderProgressBar(doneCount, len(t.Subtasks), width-4))
 		sections = append(sections, "")
+		showSubCursor := detailFocused && !notesFocused
 		for i, st := range t.Subtasks {
 			prefix := "  "
-			if detailFocused && i == subtaskIdx {
+			if showSubCursor && i == subtaskIdx {
 				prefix = "▸ "
 			}
 			if st.Completed {
@@ -169,6 +180,21 @@ func RenderDetail(t *task.Task, width int, subtaskIdx int, detailFocused bool, c
 			} else {
 				sections = append(sections, lipgloss.NewStyle().Foreground(White).Render(prefix+"[ ] "+st.Title))
 			}
+		}
+	}
+
+	// Notes
+	if len(t.Notes) > 0 {
+		sections = append(sections, "")
+		sections = append(sections, labelStyle().Render("Notes")+valueStyle().Render(fmt.Sprintf("%d", len(t.Notes))))
+		sections = append(sections, "")
+		for i, n := range t.Notes {
+			prefix := "  "
+			if detailFocused && notesFocused && i == noteIdx {
+				prefix = lipgloss.NewStyle().Foreground(Cyan).Render("▸ ")
+			}
+			ts := lipgloss.NewStyle().Foreground(Gray).Render(n.CreatedAt.Format("Jan 02 15:04"))
+			sections = append(sections, prefix+ts+" "+n.Body)
 		}
 	}
 
@@ -244,7 +270,7 @@ func renderProgressBar(done, total, width int) string {
 // activeTab: 0-2 for task tabs, 3 for journal tab.
 // timerStr: optional focus timer string (e.g. "🍅 12:34") shown when non-empty.
 // undoAvailable: whether an undo action is available.
-func RenderStatusBar(total, done, active int, width int, statusMsg string, focusedPanel int, activeTab int, timerStr string, undoAvailable bool) string {
+func RenderStatusBar(total, done, active int, width int, statusMsg string, focusedPanel int, activeTab int, timerStr string, undoAvailable bool, notesFocused bool) string {
 	keyStyle := lipgloss.NewStyle().Foreground(Cyan)
 	dimStyle := lipgloss.NewStyle().Foreground(Gray)
 	panelStyle := lipgloss.NewStyle().Foreground(Cyan).Bold(true)
@@ -329,10 +355,15 @@ func RenderStatusBar(total, done, active int, width int, statusMsg string, focus
 
 	// Context-sensitive key hints.
 	var bindings []struct{ key, desc string }
-	if focusedPanel == 1 {
+	if focusedPanel == 1 && notesFocused {
+		bindings = []struct{ key, desc string }{
+			{"a", "add"}, {"e", "edit"}, {"d", "del"},
+			{"n", "subtasks"}, {"j/k", "nav"}, {"?", "help"},
+		}
+	} else if focusedPanel == 1 {
 		bindings = []struct{ key, desc string }{
 			{"a", "add"}, {"e", "edit"}, {"d", "del"}, {"s", "toggle"},
-			{"l", "log"}, {"b", "blockers"}, {"j/k", "nav"}, {"?", "help"},
+			{"l", "log"}, {"b", "blockers"}, {"n", "notes"}, {"j/k", "nav"}, {"?", "help"},
 		}
 	} else {
 		bindings = []struct{ key, desc string }{
