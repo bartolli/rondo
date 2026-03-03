@@ -112,7 +112,13 @@ func (m *Model) updateDetail() {
 	} else if m.subtaskIdx >= len(selected.Subtasks) {
 		m.subtaskIdx = len(selected.Subtasks) - 1
 	}
-	content := ui.RenderDetail(selected, m.viewport.Width, m.subtaskIdx, m.focusedPanel == 1)
+	// Clamp noteIdx to valid range.
+	if selected == nil || len(selected.Notes) == 0 {
+		m.noteIdx = 0
+	} else if m.noteIdx >= len(selected.Notes) {
+		m.noteIdx = len(selected.Notes) - 1
+	}
+	content := ui.RenderDetail(selected, m.viewport.Width, m.subtaskIdx, m.focusedPanel == 1, m.noteIdx, m.notesFocused)
 	m.viewport.SetContent(content)
 	m.viewport.GotoTop()
 }

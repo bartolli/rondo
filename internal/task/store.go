@@ -559,6 +559,15 @@ func (s *Store) RestoreSubtask(taskID int64, title string, completed bool, posit
 	return err
 }
 
+// RestoreNote re-inserts a previously deleted note with its original timestamp.
+func (s *Store) RestoreNote(taskID int64, body string, createdAt time.Time) error {
+	_, err := s.db.Exec(
+		`INSERT INTO task_notes (task_id, body, created_at) VALUES (?,?,?)`,
+		taskID, body, createdAt.Format(time.RFC3339),
+	)
+	return err
+}
+
 // GetByID retrieves a single task by ID.
 func (s *Store) GetByID(id int64) (*Task, error) {
 	var t Task
