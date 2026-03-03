@@ -87,6 +87,13 @@ type Subtask struct {
 	Position  int
 }
 
+type TaskNote struct {
+	ID        int64
+	TaskID    int64
+	Body      string
+	CreatedAt time.Time
+}
+
 type Task struct {
 	ID            int64
 	Title         string
@@ -98,10 +105,13 @@ type Task struct {
 	UpdatedAt     time.Time
 	Subtasks      []Subtask
 	Tags          []string
+	Metadata      map[string]string
 	RecurFreq     RecurFreq
 	RecurInterval int
 	TimeLogs      []TimeLog
+	Notes         []TaskNote
 	BlockedByIDs  []int64
+	BlocksIDs     []int64
 }
 
 // FilterValue implements list.Item interface for bubbles list.

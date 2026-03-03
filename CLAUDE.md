@@ -41,7 +41,10 @@ modernc.org/sqlite v1.46.1
 - **Priority Levels**: Low, Medium, High, Urgent with color coding
 - **Tags**: Comma-separated tag support
 - **Recurring Tasks**: Daily, weekly, monthly, or yearly recurrence; auto-spawns next occurrence on completion
-- **Task Dependencies**: Block tasks by other task IDs
+- **Task Dependencies**: Block tasks by other task IDs; CLI via `--blocks` flag on `add`/`edit`, `--clear-blocks` on `edit`
+- **Delete Guard**: Refuses to delete tasks that block others (exit code 1); `--cascade` to confirm
+- **Self-Block Guard**: Store-level rejection of self-referential dependencies
+- **Metadata**: Structured key-value pairs (`--meta key=value`) stored as JSON; filterable with AND logic via `rondo list --meta key=value`
 - **Time Logging**: Log time spent on tasks with optional notes
 
 ### Journal
@@ -77,7 +80,7 @@ modernc.org/sqlite v1.46.1
 Full Cobra-based CLI with all features available as subcommands:
 - **Global flags**: `--format table|json`, `--json`, `--quiet`, `--no-color`
 - **TTY-aware output**: Styled tables with Unicode borders + ANSI colors when TTY; plain tabwriter when piped
-- **Commands**: `add`, `done`, `list`, `show`, `edit`, `delete`, `status`, `subtask`, `timelog`, `recur`, `journal`, `focus`, `export`, `stats`, `config`, `completion`
+- **Commands**: `add`, `done`, `list`, `show`, `edit`, `delete`, `status`, `subtask`, `timelog`, `note`, `recur`, `journal`, `focus`, `export`, `stats`, `config`, `batch`, `completion`
 - **Shell completions**: bash, zsh, fish, powershell via `rondo completion`
 
 ### UI Layout
@@ -124,6 +127,8 @@ internal/
     errors.go                   # NotFoundError type with errors.As support
     confirm.go                  # Confirmation prompts (styled when TTY)
     tasks.go                    # add, done, list, show, edit, delete, status
+    batch.go                    # batch (stdin newline-delimited JSON commands)
+    note.go                     # note (add, list, edit, delete)
     journal.go                  # journal (add, list, show, edit, delete, hide)
     export.go                   # export (md, json, file output with buffered flush)
     subtasks.go                 # subtask (add, list, done, edit, delete)
@@ -163,10 +168,17 @@ type Task struct {
     ID, Title, Description, Status, Priority
     DueDate, CreatedAt, UpdatedAt
     RecurFreq, RecurInterval        // Recurrence (daily, weekly, monthly, yearly)
-    BlockedByIDs []int64            // Task dependency IDs
+    BlockedByIDs []int64            // Tasks that block this one
+    BlocksIDs    []int64            // Tasks this one blocks
     Subtasks     []Subtask
     Tags         []string
+    Metadata     map[string]string  // Structured key-value pairs (JSON column)
     TimeLogs     []TimeLog
+    Notes        []TaskNote         // Timestamped comments (task_notes table)
+}
+
+type TaskNote struct {
+    ID, TaskID, Body, CreatedAt
 }
 
 type Subtask struct {
@@ -216,10 +228,15 @@ The app uses a mode enum to track UI state:
 - **Printer pattern**: `cli/output.go` — `Printer` struct with `noColor`/`quiet` flags; methods: `Table()`, `Success()`, `Bold()`, `Dim()`, `Colored()`, `JSON()`
 - **TTY detection**: `isTTY()` via `go-isatty` (not `ModeCharDevice`); auto-disables color when piped unless `--no-color` explicitly set
 - **Styled tables**: lipgloss/table with `RoundedBorder()` when TTY, tabwriter fallback when piped; `writerWidth()` constrains to terminal width
+- **Batch mode**: `rondo batch` reads newline-delimited JSON from stdin; creates a fresh cobra command tree per invocation to prevent flag state leaking
+- **UTC timestamps**: All `time.Now()` calls use `.UTC()`; all date parsing uses `time.UTC` (not `time.Local`)
+- **Metadata storage**: JSON `TEXT` column with `marshalMetadata()`/`parseMetadata()` helpers; `addColumnIfNotExists()` migration
+- **Blocker enrichment**: JSON output for `blocked_by`/`blocks` contains `{id, title, status}` objects (not bare IDs); resolved via `taskIndex` lookup
+- **Delete guard**: CLI checks `ListBlocksIDs()` before delete; exit code 1 + error listing blocked tasks unless `--cascade` is passed
 
 ### SQLite Schema
 Database at `~/.todo-app/todo.db` with tables:
-- `tasks`, `subtasks`, `tags`, `task_blocks` — task management (ON DELETE CASCADE)
+- `tasks`, `subtasks`, `tags`, `task_blocks`, `task_notes` — task management (ON DELETE CASCADE)
 - `time_logs` — time tracking per task
 - `journal_notes`, `journal_entries` — journal (ON DELETE CASCADE, indexed)
 - `focus_sessions` — Pomodoro session tracking

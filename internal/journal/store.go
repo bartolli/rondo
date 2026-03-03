@@ -70,7 +70,7 @@ func (s *Store) ListNotes(includeHidden bool) ([]Note, error) {
 			return nil, err
 		}
 		n.Hidden = hidden != 0
-		d, err := time.ParseInLocation(time.DateOnly, dateStr, time.Local)
+		d, err := time.ParseInLocation(time.DateOnly, dateStr, time.UTC)
 		if err != nil {
 			return nil, fmt.Errorf("parse note date %q: %w", dateStr, err)
 		}
@@ -107,7 +107,7 @@ func (s *Store) ListNotes(includeHidden bool) ([]Note, error) {
 // GetOrCreate returns the note for dateStr (YYYY-MM-DD format), creating it
 // if it does not exist.
 func (s *Store) GetOrCreate(dateStr string) (*Note, error) {
-	now := time.Now()
+	now := time.Now().UTC()
 	nowStr := now.Format(time.RFC3339)
 
 	_, err := s.db.Exec(
@@ -128,7 +128,7 @@ func (s *Store) GetOrCreate(dateStr string) (*Note, error) {
 		return nil, fmt.Errorf("get note for %s: %w", dateStr, err)
 	}
 	n.Hidden = hidden != 0
-	d, err := time.ParseInLocation(time.DateOnly, dStr, time.Local)
+	d, err := time.ParseInLocation(time.DateOnly, dStr, time.UTC)
 	if err != nil {
 		return nil, fmt.Errorf("parse note date %q: %w", dStr, err)
 	}
@@ -153,7 +153,7 @@ func (s *Store) GetOrCreate(dateStr string) (*Note, error) {
 
 // GetOrCreateToday returns today's note, creating it if it does not exist.
 func (s *Store) GetOrCreateToday() (*Note, error) {
-	return s.GetOrCreate(time.Now().Format(time.DateOnly))
+	return s.GetOrCreate(time.Now().UTC().Format(time.DateOnly))
 }
 
 // AddEntry appends a new entry to the given note.
@@ -164,7 +164,7 @@ func (s *Store) AddEntry(noteID int64, body string) error {
 	}
 	defer tx.Rollback()
 
-	now := time.Now().Format(time.RFC3339)
+	now := time.Now().UTC().Format(time.RFC3339)
 	if _, err := tx.Exec(
 		`INSERT INTO journal_entries (note_id, body, created_at) VALUES (?,?,?)`,
 		noteID, body, now,
@@ -185,7 +185,7 @@ func (s *Store) UpdateEntry(entryID int64, body string) error {
 	}
 	defer tx.Rollback()
 
-	now := time.Now().Format(time.RFC3339)
+	now := time.Now().UTC().Format(time.RFC3339)
 	res, err := tx.Exec(`UPDATE journal_entries SET body = ? WHERE id = ?`, body, entryID)
 	if err != nil {
 		return fmt.Errorf("update entry: %w", err)
@@ -217,7 +217,7 @@ func (s *Store) DeleteEntry(entryID int64) error {
 	if _, err := tx.Exec(`DELETE FROM journal_entries WHERE id = ?`, entryID); err != nil {
 		return fmt.Errorf("delete entry: %w", err)
 	}
-	now := time.Now().Format(time.RFC3339)
+	now := time.Now().UTC().Format(time.RFC3339)
 	if _, err := tx.Exec(`UPDATE journal_notes SET updated_at = ? WHERE id = ?`, now, noteID); err != nil {
 		return fmt.Errorf("update note timestamp: %w", err)
 	}
@@ -295,7 +295,7 @@ func (s *Store) RestoreEntry(noteID int64, body string, createdAt time.Time) err
 	); err != nil {
 		return fmt.Errorf("restore entry: %w", err)
 	}
-	now := time.Now().Format(time.RFC3339)
+	now := time.Now().UTC().Format(time.RFC3339)
 	if _, err := tx.Exec(`UPDATE journal_notes SET updated_at = ? WHERE id = ?`, now, noteID); err != nil {
 		return fmt.Errorf("update note timestamp: %w", err)
 	}
