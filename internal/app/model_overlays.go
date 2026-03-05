@@ -108,22 +108,43 @@ func (m Model) renderBlockerOverlay() string {
 	lines = append(lines, lipgloss.NewStyle().Foreground(ui.Gray).Render(fmt.Sprintf("Task: %s", selected.Title)))
 	lines = append(lines, "")
 
-	if len(selected.BlockedByIDs) == 0 {
-		lines = append(lines, lipgloss.NewStyle().Foreground(ui.Gray).Render("No blockers"))
+	if len(selected.BlockedByIDs) == 0 && len(selected.BlocksIDs) == 0 {
+		lines = append(lines, lipgloss.NewStyle().Foreground(ui.Gray).Render("No dependencies"))
 	} else {
-		lines = append(lines, lipgloss.NewStyle().Bold(true).Foreground(ui.Cyan).Render("Blocked by:"))
-		for _, id := range selected.BlockedByIDs {
-			blocker, err := m.store.GetByID(id)
-			if err != nil {
-				lines = append(lines, fmt.Sprintf("  - Task #%d (not found)", id))
-				continue
+		if len(selected.BlockedByIDs) > 0 {
+			lines = append(lines, lipgloss.NewStyle().Bold(true).Foreground(ui.Cyan).Render("Blocked by:"))
+			for _, id := range selected.BlockedByIDs {
+				blocker, err := m.store.GetByID(id)
+				if err != nil {
+					lines = append(lines, fmt.Sprintf("  - Task #%d (not found)", id))
+					continue
+				}
+				statusIcon := blocker.Status.Icon()
+				style := lipgloss.NewStyle().Foreground(ui.White)
+				if blocker.Status == task.Done {
+					style = style.Foreground(ui.Green)
+				}
+				lines = append(lines, style.Render(fmt.Sprintf("  %s %s", statusIcon, blocker.Title)))
 			}
-			statusIcon := blocker.Status.Icon()
-			style := lipgloss.NewStyle().Foreground(ui.White)
-			if blocker.Status == task.Done {
-				style = style.Foreground(ui.Green)
+		}
+		if len(selected.BlocksIDs) > 0 {
+			if len(selected.BlockedByIDs) > 0 {
+				lines = append(lines, "")
 			}
-			lines = append(lines, style.Render(fmt.Sprintf("  %s %s", statusIcon, blocker.Title)))
+			lines = append(lines, lipgloss.NewStyle().Bold(true).Foreground(ui.Cyan).Render("Blocks:"))
+			for _, id := range selected.BlocksIDs {
+				blocked, err := m.store.GetByID(id)
+				if err != nil {
+					lines = append(lines, fmt.Sprintf("  - Task #%d (not found)", id))
+					continue
+				}
+				statusIcon := blocked.Status.Icon()
+				style := lipgloss.NewStyle().Foreground(ui.White)
+				if blocked.Status == task.Done {
+					style = style.Foreground(ui.Green)
+				}
+				lines = append(lines, style.Render(fmt.Sprintf("  %s %s", statusIcon, blocked.Title)))
+			}
 		}
 	}
 
@@ -271,6 +292,7 @@ func (m Model) renderHelpOverlay() string {
 		{"F1/F2/F3", "Sort date / due / priority"},
 		{"F4", "Tag filter bar"},
 		{"l", "Log time (detail)"},
+		{"n", "Notes (detail)"},
 		{"b", "View blockers (detail)"},
 		{"", ""},
 		{"", "Tools"},

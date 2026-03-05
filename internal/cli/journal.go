@@ -22,7 +22,7 @@ func parseJournalDate(s string) (string, error) {
 	case "yesterday":
 		return time.Now().AddDate(0, 0, -1).Format(time.DateOnly), nil
 	default:
-		t, err := time.ParseInLocation(time.DateOnly, s, time.Local)
+		t, err := time.ParseInLocation(time.DateOnly, s, time.UTC)
 		if err != nil {
 			return "", fmt.Errorf("invalid date %q: expected today, yesterday, or YYYY-MM-DD", s)
 		}

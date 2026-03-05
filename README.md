@@ -97,9 +97,13 @@ All data is stored locally at `~/.todo-app/` — no setup needed.
 - **Priority levels** — Low, Medium, High, Urgent (color-coded)
 - **Due dates** — with overdue detection and sort support
 - **Tags** — comma-separated, filterable
+- **Metadata** — structured key-value pairs (`--meta key=value`), filterable with AND logic
 - **Recurring tasks** — daily, weekly, monthly, or yearly; auto-spawns next on completion
-- **Task dependencies** — mark tasks as blocked by others
+- **Task dependencies** — block tasks via `--blocks` flag; enriched JSON refs with title and status
+- **Delete guard** — refuses to delete tasks that block others; `--cascade` to override
+- **Task notes** — timestamped comments on tasks for status updates, blockers, justifications
 - **Time logging** — log time spent with optional notes
+- **Batch mode** — pipe newline-delimited JSON commands to `rondo batch`
 - **Sorting** — by creation date, due date, or priority
 - **Fuzzy search** — instant filter across tasks
 
@@ -163,18 +167,31 @@ rondo stats
 ```bash
 # Tasks
 rondo add "Buy groceries" --priority high --due 2026-03-15 --tags "home,shopping"
+rondo add "Task with context" --meta source=email --meta assigned=john
+rondo add "Blocked task" --blocks 1,2          # this task blocks tasks 1 and 2
 rondo list --status pending --sort priority --limit 10
 rondo list --priority urgent --overdue --format json
+rondo list --meta source=email --json          # filter by metadata (AND logic)
 rondo show 3
 rondo edit 3 --title "Buy organic groceries" --due 2026-03-20
+rondo edit 3 --meta assigned=jane              # merge metadata (adds/overwrites keys)
+rondo edit 3 --blocks 4,5                      # set tasks this one blocks (replaces)
+rondo edit 3 --clear-blocks                    # remove all blockers
 rondo done 3 4 5
-rondo delete 3 --force
+rondo delete 3 --force                         # fails if task blocks others (exit 1)
+rondo delete 3 --force --cascade               # delete + unblock dependents
 rondo status 3 active
 
 # Subtasks
 rondo subtask add 3 "Pick up milk"
 rondo subtask list 3
 rondo subtask done 3 1
+
+# Notes (timestamped comments)
+rondo note add 3 "Blocked on vendor API key"
+rondo note list 3                              # table or --json
+rondo note edit 3 1 "Updated: key received"
+rondo note delete 3 1 --force
 
 # Time tracking
 rondo timelog add 3 1h30m --note "Deep work session"
@@ -195,6 +212,10 @@ rondo journal show today
 rondo focus start --task-id 3 --duration 25m
 rondo focus status
 rondo focus stats --days 14
+
+# Batch (multiple commands in one call)
+echo '{"cmd":"add","args":["Task 1","--meta","source=api"]}
+{"cmd":"done","args":["3"]}' | rondo batch
 
 # Utilities
 rondo stats
@@ -344,6 +365,8 @@ internal/
     errors.go                   # NotFoundError type
     confirm.go                  # Confirmation prompts
     tasks.go                    # add, done, list, show, edit, delete, status
+    batch.go                    # batch (stdin newline-delimited JSON commands)
+    note.go                     # note (add, list, edit, delete)
     journal.go                  # journal (add, list, show, edit, delete, hide)
     export.go                   # export (md, json, file output)
     subtasks.go                 # subtask (add, list, done, edit, delete)

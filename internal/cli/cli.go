@@ -83,6 +83,8 @@ func New(ts *task.Store, js *journal.Store, fs *focus.Store, cfg config.Config) 
 	root.AddCommand(c.configCmd())
 	root.AddCommand(c.statsCmd())
 	root.AddCommand(c.focusCmd())
+	root.AddCommand(c.noteCmd())
+	root.AddCommand(c.batchCmd())
 	root.AddCommand(c.completionCmd())
 
 	return root

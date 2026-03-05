@@ -118,6 +118,12 @@ func (d taskDelegate) Render(w io.Writer, m list.Model, index int, item list.Ite
 		}
 		subtitle += lipgloss.NewStyle().Foreground(ui.Gray).Render(fmt.Sprintf("[%d/%d]", done, len(t.Subtasks)))
 	}
+	if len(t.Notes) > 0 {
+		if subtitle != "" {
+			subtitle += "  "
+		}
+		subtitle += lipgloss.NewStyle().Foreground(ui.Gray).Render(fmt.Sprintf("[%d notes]", len(t.Notes)))
+	}
 	line2 := lipgloss.NewStyle().PaddingLeft(5).MaxWidth(availWidth).Render(subtitle)
 
 	// Cursor / selection

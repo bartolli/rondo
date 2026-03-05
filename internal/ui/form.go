@@ -27,6 +27,13 @@ type TaskFormData struct {
 	DueDate     string
 	Tags        string
 	RecurFreq   string
+	Metadata    string // "key=value, key2=value2"
+	Blocks      string // "1, 2, 3" (task IDs)
+}
+
+// NoteFormData holds the note form field value.
+type NoteFormData struct {
+	Body string
 }
 
 // ExportFormData holds the export form field values.
@@ -91,6 +98,18 @@ func NewTaskForm(data *TaskFormData) *huh.Form {
 					huh.NewOption("Yearly", "yearly").Selected(data.RecurFreq == "yearly"),
 				).
 				Value(&data.RecurFreq),
+
+			huh.NewText().
+				Title("Metadata").
+				Placeholder("key=value (one per line)").
+				Value(&data.Metadata).
+				Lines(3),
+
+			huh.NewInput().
+				Title("Blocks (task IDs)").
+				Placeholder("comma separated IDs").
+				Value(&data.Blocks).
+				Validate(validateOptionalBlocks),
 		),
 	).WithTheme(FormTheme()).WithShowHelp(true)
 }
@@ -140,6 +159,32 @@ func EditTaskForm(data *TaskFormData) *huh.Form {
 					huh.NewOption("Yearly", "yearly").Selected(data.RecurFreq == "yearly"),
 				).
 				Value(&data.RecurFreq),
+
+			huh.NewText().
+				Title("Metadata").
+				Placeholder("key=value (one per line)").
+				Value(&data.Metadata).
+				Lines(3),
+
+			huh.NewInput().
+				Title("Blocks (task IDs)").
+				Placeholder("comma separated IDs").
+				Value(&data.Blocks).
+				Validate(validateOptionalBlocks),
+		),
+	).WithTheme(FormTheme()).WithShowHelp(true)
+}
+
+// NoteForm creates a form for adding or editing a task note.
+func NoteForm(data *NoteFormData) *huh.Form {
+	return huh.NewForm(
+		huh.NewGroup(
+			huh.NewText().
+				Title("Note").
+				Value(&data.Body).
+				Lines(3).
+				CharLimit(2000).
+				Validate(validateNotBlank),
 		),
 	).WithTheme(FormTheme()).WithShowHelp(true)
 }
@@ -231,6 +276,23 @@ func validateDuration(s string) error {
 	_, err := task.ParseDuration(s)
 	if err != nil {
 		return fmt.Errorf("use format like 1h30m, 45m, 2h")
+	}
+	return nil
+}
+
+func validateOptionalBlocks(s string) error {
+	if s == "" {
+		return nil
+	}
+	for _, part := range strings.Split(s, ",") {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		v, err := strconv.Atoi(part)
+		if err != nil || v <= 0 {
+			return fmt.Errorf("use comma-separated positive IDs (e.g. 1, 2, 3)")
+		}
 	}
 	return nil
 }

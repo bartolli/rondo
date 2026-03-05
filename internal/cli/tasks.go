@@ -44,8 +44,49 @@ func (c *CLI) getTaskOrNotFound(id int64) (*task.Task, error) {
 	return t, nil
 }
 
+// parseMetaFlags parses --meta key=value pairs into a map.
+func parseMetaFlags(raw []string) (map[string]string, error) {
+	if len(raw) == 0 {
+		return nil, nil
+	}
+	m := make(map[string]string, len(raw))
+	for _, kv := range raw {
+		eq := strings.IndexByte(kv, '=')
+		if eq < 1 {
+			return nil, fmt.Errorf("invalid --meta %q: expected key=value", kv)
+		}
+		m[kv[:eq]] = kv[eq+1:]
+	}
+	return m, nil
+}
+
+// parseBlocksFlag parses a comma-separated list of task IDs.
+func parseBlocksFlag(s string) ([]int64, error) {
+	if s == "" {
+		return nil, nil
+	}
+	parts := strings.Split(s, ",")
+	ids := make([]int64, 0, len(parts))
+	for _, p := range parts {
+		p = strings.TrimSpace(p)
+		if p == "" {
+			continue
+		}
+		id, err := strconv.ParseInt(p, 10, 64)
+		if err != nil {
+			return nil, fmt.Errorf("invalid task ID %q in --blocks: %w", p, err)
+		}
+		if id <= 0 {
+			return nil, fmt.Errorf("invalid task ID %q in --blocks: must be positive", p)
+		}
+		ids = append(ids, id)
+	}
+	return ids, nil
+}
+
 func (c *CLI) addCmd() *cobra.Command {
-	var priority, due, tags, desc, recur string
+	var priority, due, tags, desc, recur, blocks string
+	var meta []string
 
 	cmd := &cobra.Command{
 		Use:   "add \"task title\" [flags]",
@@ -62,7 +103,7 @@ func (c *CLI) addCmd() *cobra.Command {
 			t.Priority = prio
 
 			if due != "" {
-				d, err := time.ParseInLocation(time.DateOnly, due, time.Local)
+				d, err := time.ParseInLocation(time.DateOnly, due, time.UTC)
 				if err != nil {
 					return fmt.Errorf("invalid due date %q: expected YYYY-MM-DD", due)
 				}
@@ -78,8 +119,27 @@ func (c *CLI) addCmd() *cobra.Command {
 				}
 			}
 
+			if m, err := parseMetaFlags(meta); err != nil {
+				return err
+			} else {
+				t.Metadata = m
+			}
+
 			if err := c.taskStore.Create(t); err != nil {
 				return fmt.Errorf("create task: %w", err)
+			}
+
+			// Set blockers: this task blocks the listed task IDs
+			if blocks != "" {
+				blockerIDs, err := parseBlocksFlag(blocks)
+				if err != nil {
+					return err
+				}
+				for _, bid := range blockerIDs {
+					if err := c.taskStore.SetBlocker(bid, t.ID); err != nil {
+						return fmt.Errorf("set blocker: %w", err)
+					}
+				}
 			}
 
 			if recur != "" && strings.ToLower(recur) != "none" {
@@ -106,6 +166,8 @@ func (c *CLI) addCmd() *cobra.Command {
 	cmd.Flags().StringVar(&tags, "tags", "", "Comma-separated tags")
 	cmd.Flags().StringVar(&desc, "desc", "", "Task description")
 	cmd.Flags().StringVar(&recur, "recur", "", "Recurrence: daily, weekly, monthly, yearly")
+	cmd.Flags().StringSliceVar(&meta, "meta", nil, "Metadata key=value (repeatable: --meta source=whatsapp --meta group=main)")
+	cmd.Flags().StringVar(&blocks, "blocks", "", "Comma-separated task IDs this task blocks")
 
 	return cmd
 }
@@ -181,7 +243,7 @@ func (c *CLI) showCmd() *cobra.Command {
 
 			switch strings.ToLower(c.format) {
 			case "json":
-				return printTaskJSON(os.Stdout, t)
+				return c.printTaskJSON(os.Stdout, t)
 			default:
 				return c.printTaskDetail(c.printer(os.Stdout), t)
 			}
@@ -190,8 +252,9 @@ func (c *CLI) showCmd() *cobra.Command {
 }
 
 func (c *CLI) editCmd() *cobra.Command {
-	var title, desc, priority, due, tags, recur string
-	var clearDue bool
+	var title, desc, priority, due, tags, recur, blocks string
+	var clearDue, clearBlocks bool
+	var meta []string
 
 	cmd := &cobra.Command{
 		Use:   "edit <task-id> [flags]",
@@ -230,7 +293,7 @@ func (c *CLI) editCmd() *cobra.Command {
 				t.DueDate = nil
 				changed = true
 			} else if cmd.Flags().Changed("due") {
-				d, err := time.ParseInLocation(time.DateOnly, due, time.Local)
+				d, err := time.ParseInLocation(time.DateOnly, due, time.UTC)
 				if err != nil {
 					return fmt.Errorf("invalid due date %q: expected YYYY-MM-DD", due)
 				}
@@ -247,15 +310,43 @@ func (c *CLI) editCmd() *cobra.Command {
 				}
 				changed = true
 			}
+			if cmd.Flags().Changed("meta") {
+				newMeta, err := parseMetaFlags(meta)
+				if err != nil {
+					return err
+				}
+				if t.Metadata == nil {
+					t.Metadata = make(map[string]string)
+				}
+				for k, v := range newMeta {
+					t.Metadata[k] = v
+				}
+				changed = true
+			}
 
+			blocksChanged := clearBlocks || cmd.Flags().Changed("blocks")
 			recurChanged := cmd.Flags().Changed("recur")
-			if !changed && !recurChanged {
-				return fmt.Errorf("no changes specified: use --title, --desc, --priority, --due, --tags, --recur, or --clear-due")
+			if !changed && !recurChanged && !blocksChanged {
+				return fmt.Errorf("no changes specified: use --title, --desc, --priority, --due, --tags, --meta, --blocks, --recur, --clear-due, or --clear-blocks")
 			}
 
 			if changed {
 				if err := c.taskStore.Update(t); err != nil {
 					return fmt.Errorf("update task: %w", err)
+				}
+			}
+
+			if clearBlocks {
+				if err := c.taskStore.SetBlocksIDs(id, nil); err != nil {
+					return fmt.Errorf("clear blocks: %w", err)
+				}
+			} else if cmd.Flags().Changed("blocks") {
+				newBlocks, err := parseBlocksFlag(blocks)
+				if err != nil {
+					return err
+				}
+				if err := c.taskStore.SetBlocksIDs(id, newBlocks); err != nil {
+					return fmt.Errorf("set blocks: %w", err)
 				}
 			}
 
@@ -282,12 +373,15 @@ func (c *CLI) editCmd() *cobra.Command {
 	cmd.Flags().StringVar(&tags, "tags", "", "New comma-separated tags (replaces all existing tags)")
 	cmd.Flags().StringVar(&recur, "recur", "", "Recurrence: none, daily, weekly, monthly, yearly")
 	cmd.Flags().BoolVar(&clearDue, "clear-due", false, "Remove the due date")
+	cmd.Flags().StringSliceVar(&meta, "meta", nil, "Metadata key=value (repeatable, merges with existing)")
+	cmd.Flags().StringVar(&blocks, "blocks", "", "Comma-separated task IDs this task blocks (replaces existing)")
+	cmd.Flags().BoolVar(&clearBlocks, "clear-blocks", false, "Remove all tasks this task blocks")
 
 	return cmd
 }
 
 func (c *CLI) deleteCmd() *cobra.Command {
-	var force bool
+	var force, cascade bool
 
 	cmd := &cobra.Command{
 		Use:     "delete <task-id>",
@@ -305,6 +399,19 @@ func (c *CLI) deleteCmd() *cobra.Command {
 				return err
 			}
 
+			// Guard: refuse to delete if this task blocks others (unless --cascade)
+			blocksIDs, err := c.taskStore.ListBlocksIDs(id)
+			if err != nil {
+				return fmt.Errorf("check dependencies: %w", err)
+			}
+			if len(blocksIDs) > 0 && !cascade {
+				idStrs := make([]string, len(blocksIDs))
+				for i, bid := range blocksIDs {
+					idStrs[i] = fmt.Sprintf("#%d", bid)
+				}
+				return fmt.Errorf("task #%d blocks %s. Use --cascade to delete and unblock them", id, strings.Join(idStrs, ", "))
+			}
+
 			ok, err := Confirm(fmt.Sprintf("Delete task #%d %q?", id, t.Title), force)
 			if err != nil {
 				return err
@@ -318,12 +425,21 @@ func (c *CLI) deleteCmd() *cobra.Command {
 				return fmt.Errorf("delete task: %w", err)
 			}
 
-			c.printer(os.Stdout).Success("Deleted task #%d: %s", id, t.Title)
+			if len(blocksIDs) > 0 {
+				idStrs := make([]string, len(blocksIDs))
+				for i, bid := range blocksIDs {
+					idStrs[i] = fmt.Sprintf("#%d", bid)
+				}
+				c.printer(os.Stdout).Success("Deleted task #%d: %s (unblocked %s)", id, t.Title, strings.Join(idStrs, ", "))
+			} else {
+				c.printer(os.Stdout).Success("Deleted task #%d: %s", id, t.Title)
+			}
 			return nil
 		},
 	}
 
 	cmd.Flags().BoolVarP(&force, "force", "y", false, "Skip confirmation prompt")
+	cmd.Flags().BoolVar(&cascade, "cascade", false, "Delete even if this task blocks others (unblocks them)")
 
 	return cmd
 }
@@ -372,6 +488,7 @@ func (c *CLI) statusCmd() *cobra.Command {
 func (c *CLI) listCmd() *cobra.Command {
 	var status, priority, sortBy, dueBefore, dueAfter, search string
 	var tags []string
+	var metaFilter []string
 	var overdue bool
 	var limit int
 
@@ -386,13 +503,14 @@ func (c *CLI) listCmd() *cobra.Command {
 			}
 
 			filtered, err := applyTaskFilters(tasks, taskFilterOpts{
-				status:    status,
-				priority:  priority,
-				tags:      tags,
-				dueBefore: dueBefore,
-				dueAfter:  dueAfter,
-				overdue:   overdue,
-				search:    search,
+				status:     status,
+				priority:   priority,
+				tags:       tags,
+				metaFilter: metaFilter,
+				dueBefore:  dueBefore,
+				dueAfter:   dueAfter,
+				overdue:    overdue,
+				search:     search,
 			})
 			if err != nil {
 				return err
@@ -416,6 +534,7 @@ func (c *CLI) listCmd() *cobra.Command {
 	cmd.Flags().StringVar(&status, "status", "all", "Filter: pending, active, done, all")
 	cmd.Flags().StringVar(&priority, "priority", "", "Filter by priority: low, medium, high, urgent")
 	cmd.Flags().StringSliceVar(&tags, "tag", nil, "Filter by tag (repeatable: --tag work --tag urgent)")
+	cmd.Flags().StringSliceVar(&metaFilter, "meta", nil, "Filter by metadata key=value (repeatable, AND logic)")
 	cmd.Flags().StringVar(&sortBy, "sort", "created", "Sort order: created, due, priority")
 	cmd.Flags().StringVar(&dueBefore, "due-before", "", "Show tasks due on or before YYYY-MM-DD")
 	cmd.Flags().StringVar(&dueAfter, "due-after", "", "Show tasks due on or after YYYY-MM-DD")
@@ -428,13 +547,14 @@ func (c *CLI) listCmd() *cobra.Command {
 
 // taskFilterOpts holds all list filter parameters.
 type taskFilterOpts struct {
-	status    string
-	priority  string
-	tags      []string
-	dueBefore string
-	dueAfter  string
-	overdue   bool
-	search    string
+	status     string
+	priority   string
+	tags       []string
+	metaFilter []string
+	dueBefore  string
+	dueAfter   string
+	overdue    bool
+	search     string
 }
 
 func applyTaskFilters(tasks []task.Task, opts taskFilterOpts) ([]task.Task, error) {
@@ -456,6 +576,16 @@ func applyTaskFilters(tasks []task.Task, opts taskFilterOpts) ([]task.Task, erro
 		})
 	}
 
+	if len(opts.metaFilter) > 0 {
+		metaKV, err := parseMetaFlags(opts.metaFilter)
+		if err != nil {
+			return nil, err
+		}
+		tasks = filterSlice(tasks, func(t task.Task) bool {
+			return taskMatchesMeta(t, metaKV)
+		})
+	}
+
 	if opts.search != "" {
 		lower := strings.ToLower(opts.search)
 		tasks = filterSlice(tasks, func(t task.Task) bool {
@@ -472,7 +602,7 @@ func applyTaskFilters(tasks []task.Task, opts taskFilterOpts) ([]task.Task, erro
 	}
 
 	if opts.dueBefore != "" {
-		if cutoff, err := time.ParseInLocation(time.DateOnly, opts.dueBefore, time.Local); err == nil {
+		if cutoff, err := time.ParseInLocation(time.DateOnly, opts.dueBefore, time.UTC); err == nil {
 			tasks = filterSlice(tasks, func(t task.Task) bool {
 				return t.DueDate != nil && !t.DueDate.After(cutoff)
 			})
@@ -480,7 +610,7 @@ func applyTaskFilters(tasks []task.Task, opts taskFilterOpts) ([]task.Task, erro
 	}
 
 	if opts.dueAfter != "" {
-		if cutoff, err := time.ParseInLocation(time.DateOnly, opts.dueAfter, time.Local); err == nil {
+		if cutoff, err := time.ParseInLocation(time.DateOnly, opts.dueAfter, time.UTC); err == nil {
 			tasks = filterSlice(tasks, func(t task.Task) bool {
 				return t.DueDate != nil && !t.DueDate.Before(cutoff)
 			})
@@ -513,6 +643,19 @@ func taskHasAnyTag(t task.Task, filterTags []string) bool {
 		}
 	}
 	return false
+}
+
+// taskMatchesMeta reports whether the task matches all given metadata key=value pairs (AND logic).
+func taskMatchesMeta(t task.Task, filter map[string]string) bool {
+	if t.Metadata == nil {
+		return false
+	}
+	for k, v := range filter {
+		if t.Metadata[k] != v {
+			return false
+		}
+	}
+	return true
 }
 
 // sortTasks sorts tasks in-place by the given sort key.
@@ -574,6 +717,20 @@ func (c *CLI) printTasksTable(p *Printer, tasks []task.Task) error {
 		if len(t.Tags) > 0 {
 			tags = strings.Join(t.Tags, ", ")
 		}
+		completedSubs := 0
+		for _, s := range t.Subtasks {
+			if s.Completed {
+				completedSubs++
+			}
+		}
+		subs := "-"
+		if len(t.Subtasks) > 0 {
+			subs = fmt.Sprintf("%d/%d", completedSubs, len(t.Subtasks))
+		}
+		notes := "-"
+		if len(t.Notes) > 0 {
+			notes = fmt.Sprintf("%d", len(t.Notes))
+		}
 		rows = append(rows, []string{
 			fmt.Sprintf("%d", t.ID),
 			formatStatus(p, t.Status),
@@ -581,9 +738,11 @@ func (c *CLI) printTasksTable(p *Printer, tasks []task.Task) error {
 			t.Title,
 			due,
 			tags,
+			subs,
+			notes,
 		})
 	}
-	p.Table([]string{"ID", "STATUS", "PRIORITY", "TITLE", "DUE", "TAGS"}, rows)
+	p.Table([]string{"ID", "STATUS", "PRIORITY", "TITLE", "DUE", "TAGS", "SUBS", "NOTES"}, rows)
 	return nil
 }
 
@@ -630,13 +789,36 @@ func (c *CLI) printTaskDetail(p *Printer, t *task.Task) error {
 	}
 	subtaskStr := fmt.Sprintf("%d/%d", completedSubs, len(t.Subtasks))
 
-	var blockerStrs []string
+	var blockedByStrs []string
 	for _, bid := range t.BlockedByIDs {
-		blockerStrs = append(blockerStrs, fmt.Sprintf("#%d", bid))
+		blockedByStrs = append(blockedByStrs, fmt.Sprintf("#%d", bid))
 	}
-	blockers := "-"
-	if len(blockerStrs) > 0 {
-		blockers = strings.Join(blockerStrs, ", ")
+	blockedBy := "-"
+	if len(blockedByStrs) > 0 {
+		blockedBy = strings.Join(blockedByStrs, ", ")
+	}
+
+	var blocksStrs []string
+	for _, bid := range t.BlocksIDs {
+		blocksStrs = append(blocksStrs, fmt.Sprintf("#%d", bid))
+	}
+	blocks := "-"
+	if len(blocksStrs) > 0 {
+		blocks = strings.Join(blocksStrs, ", ")
+	}
+
+	meta := "-"
+	if len(t.Metadata) > 0 {
+		keys := make([]string, 0, len(t.Metadata))
+		for k := range t.Metadata {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		var pairs []string
+		for _, k := range keys {
+			pairs = append(pairs, k+"="+t.Metadata[k])
+		}
+		meta = strings.Join(pairs, ", ")
 	}
 
 	label := func(s string) string { return p.Bold(s) }
@@ -652,9 +834,12 @@ func (c *CLI) printTaskDetail(p *Printer, t *task.Task) error {
 			{label("Priority"), priority},
 			{label("Due Date"), due},
 			{label("Tags"), tags},
+			{label("Metadata"), meta},
 			{label("Recurrence"), t.RecurFreq.String()},
 			{label("Subtasks"), subtaskStr},
-			{label("Blockers"), blockers},
+			{label("Blocked By"), blockedBy},
+			{label("Blocks"), blocks},
+			{label("Notes"), fmt.Sprintf("%d", len(t.Notes))},
 			{label("Time Logged"), task.FormatDuration(task.TotalDuration(t.TimeLogs))},
 			{label("Created"), c.cfg.FormatDateTime(t.CreatedAt)},
 			{label("Updated"), c.cfg.FormatDateTime(t.UpdatedAt)},
@@ -671,7 +856,7 @@ func (c *CLI) printTaskDetail(p *Printer, t *task.Task) error {
 			if s.Completed {
 				check = p.Colored("✓", ui.Green)
 			}
-			fmt.Fprintf(w, "  %s %s\n", check, s.Title)
+			fmt.Fprintf(w, "  %s [%d] %s\n", check, s.ID, s.Title)
 		}
 	}
 	if len(t.TimeLogs) > 0 {
@@ -681,10 +866,21 @@ func (c *CLI) printTaskDetail(p *Printer, t *task.Task) error {
 			if tl.Note != "" {
 				note = " — " + tl.Note
 			}
-			fmt.Fprintf(w, "  %s  %s%s\n",
+			fmt.Fprintf(w, "  %s  [%d] %s%s\n",
 				p.Dim(c.cfg.FormatDateTime(tl.LoggedAt)),
+				tl.ID,
 				task.FormatDuration(tl.Duration),
 				note,
+			)
+		}
+	}
+	if len(t.Notes) > 0 {
+		fmt.Fprintf(w, "\n%s\n", p.Bold("Notes:"))
+		for _, n := range t.Notes {
+			fmt.Fprintf(w, "  %s  [%d] %s\n",
+				p.Dim(c.cfg.FormatDateTime(n.CreatedAt)),
+				n.ID,
+				n.Body,
 			)
 		}
 	}
@@ -707,23 +903,64 @@ type jsonTimeLog struct {
 	LoggedAt string `json:"logged_at"`
 }
 
-type jsonTask struct {
-	ID          int64         `json:"id"`
-	Title       string        `json:"title"`
-	Description string        `json:"description,omitempty"`
-	Status      string        `json:"status"`
-	Priority    string        `json:"priority"`
-	DueDate     string        `json:"due_date,omitempty"`
-	Tags        []string      `json:"tags"`
-	Recurrence  string        `json:"recurrence,omitempty"`
-	Subtasks    []jsonSubtask `json:"subtasks"`
-	TimeLogs    []jsonTimeLog `json:"time_logs"`
-	BlockedBy   []int64       `json:"blocked_by"`
-	CreatedAt   string        `json:"created_at"`
-	UpdatedAt   string        `json:"updated_at"`
+type jsonTaskNote struct {
+	ID        int64  `json:"id"`
+	Body      string `json:"body"`
+	CreatedAt string `json:"created_at"`
 }
 
-func taskToJSON(t *task.Task) jsonTask {
+type jsonTaskRef struct {
+	ID     int64  `json:"id"`
+	Title  string `json:"title"`
+	Status string `json:"status"`
+}
+
+type jsonTask struct {
+	ID              int64             `json:"id"`
+	Title           string            `json:"title"`
+	Description     string            `json:"description,omitempty"`
+	Status          string            `json:"status"`
+	Priority        string            `json:"priority"`
+	DueDate         string            `json:"due_date,omitempty"`
+	Tags            []string          `json:"tags"`
+	Metadata        map[string]string `json:"metadata,omitempty"`
+	Recurrence      string            `json:"recurrence,omitempty"`
+	Subtasks        []jsonSubtask     `json:"subtasks"`
+	TimeLogs        []jsonTimeLog     `json:"time_logs"`
+	NoteCount       int               `json:"note_count"`
+	Notes           []jsonTaskNote    `json:"notes"`
+	BlockedBy       []int64           `json:"blocked_by"`
+	BlockedByDetail []jsonTaskRef     `json:"blocked_by_detail"`
+	Blocks          []int64           `json:"blocks"`
+	BlocksDetail    []jsonTaskRef     `json:"blocks_detail"`
+	CreatedAt       string            `json:"created_at"`
+	UpdatedAt       string            `json:"updated_at"`
+}
+
+// taskIndex maps task IDs to their summary info for enriching dependency refs.
+type taskIndex map[int64]jsonTaskRef
+
+func buildTaskIndex(tasks []task.Task) taskIndex {
+	idx := make(taskIndex, len(tasks))
+	for _, t := range tasks {
+		idx[t.ID] = jsonTaskRef{ID: t.ID, Title: t.Title, Status: t.Status.String()}
+	}
+	return idx
+}
+
+func resolveRefs(ids []int64, idx taskIndex) []jsonTaskRef {
+	refs := make([]jsonTaskRef, 0, len(ids))
+	for _, id := range ids {
+		if ref, ok := idx[id]; ok {
+			refs = append(refs, ref)
+		} else {
+			refs = append(refs, jsonTaskRef{ID: id, Title: "(unknown)", Status: "Unknown"})
+		}
+	}
+	return refs
+}
+
+func taskToJSON(t *task.Task, idx taskIndex) jsonTask {
 	jt := jsonTask{
 		ID:          t.ID,
 		Title:       t.Title,
@@ -737,6 +974,7 @@ func taskToJSON(t *task.Task) jsonTask {
 	if jt.Tags == nil {
 		jt.Tags = []string{}
 	}
+	jt.Metadata = t.Metadata
 	if t.DueDate != nil {
 		jt.DueDate = t.DueDate.Format(time.DateOnly)
 	}
@@ -761,26 +999,59 @@ func taskToJSON(t *task.Task) jsonTask {
 			LoggedAt: tl.LoggedAt.Format(time.RFC3339),
 		})
 	}
-	if t.BlockedByIDs != nil {
-		jt.BlockedBy = t.BlockedByIDs
-	} else {
+	jt.NoteCount = len(t.Notes)
+	jt.Notes = make([]jsonTaskNote, 0, len(t.Notes))
+	for _, n := range t.Notes {
+		jt.Notes = append(jt.Notes, jsonTaskNote{
+			ID:        n.ID,
+			Body:      n.Body,
+			CreatedAt: n.CreatedAt.Format(time.RFC3339),
+		})
+	}
+	jt.BlockedBy = t.BlockedByIDs
+	if jt.BlockedBy == nil {
 		jt.BlockedBy = []int64{}
 	}
+	jt.BlockedByDetail = resolveRefs(t.BlockedByIDs, idx)
+	jt.Blocks = t.BlocksIDs
+	if jt.Blocks == nil {
+		jt.Blocks = []int64{}
+	}
+	jt.BlocksDetail = resolveRefs(t.BlocksIDs, idx)
 	return jt
 }
 
 func printTasksJSON(w io.Writer, tasks []task.Task) error {
+	idx := buildTaskIndex(tasks)
 	out := make([]jsonTask, 0, len(tasks))
 	for i := range tasks {
-		out = append(out, taskToJSON(&tasks[i]))
+		out = append(out, taskToJSON(&tasks[i], idx))
 	}
 	enc := json.NewEncoder(w)
 	enc.SetIndent("", "  ")
 	return enc.Encode(out)
 }
 
-func printTaskJSON(w io.Writer, t *task.Task) error {
+func (c *CLI) printTaskJSON(w io.Writer, t *task.Task) error {
+	// Build index from only referenced tasks (not all tasks).
+	idx := taskIndex{t.ID: {ID: t.ID, Title: t.Title, Status: t.Status.String()}}
+	refIDs := make(map[int64]bool)
+	for _, id := range t.BlockedByIDs {
+		refIDs[id] = true
+	}
+	for _, id := range t.BlocksIDs {
+		refIDs[id] = true
+	}
+	for id := range refIDs {
+		if id == t.ID {
+			continue
+		}
+		ref, err := c.taskStore.GetByID(id)
+		if err == nil {
+			idx[ref.ID] = jsonTaskRef{ID: ref.ID, Title: ref.Title, Status: ref.Status.String()}
+		}
+	}
 	enc := json.NewEncoder(w)
 	enc.SetIndent("", "  ")
-	return enc.Encode(taskToJSON(t))
+	return enc.Encode(taskToJSON(t, idx))
 }

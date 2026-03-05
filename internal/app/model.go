@@ -42,9 +42,12 @@ const (
 	modeTagFilter
 	modeStats
 	modeBlockerPicker
-	modeFocusSessionEnd // work done overlay
-	modeFocusBreakEnd   // break done overlay
-	modeFocusSettings   // P key settings form
+	modeNoteAdd              // task note add form
+	modeNoteEdit             // task note edit form
+	modeConfirmDeleteNote    // task note delete confirmation
+	modeFocusSessionEnd      // work done overlay
+	modeFocusBreakEnd        // break done overlay
+	modeFocusSettings        // P key settings form
 )
 
 const tabCount = 4
@@ -120,6 +123,14 @@ type Model struct {
 
 	// Time log.
 	timeLogFormData *ui.TimeLogFormData
+
+	// Notes (detail panel).
+	noteIdx      int
+	notesFocused bool
+	noteFormData *ui.NoteFormData
+
+	// Delete guard (TUI).
+	deleteGuardConfirmed bool
 
 	// Focus settings form.
 	focusSettingsFormData *ui.FocusSettingsData
@@ -258,6 +269,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if m.mode == modeTimeLog {
 		return m.updateTimeLogForm(msg)
 	}
+	if m.mode == modeNoteAdd || m.mode == modeNoteEdit {
+		return m.updateNoteForm(msg)
+	}
 	if m.mode == modeFocusSettings {
 		return m.updateFocusSettingsForm(msg)
 	}
@@ -321,6 +335,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if m.mode == modeConfirmDeleteSubtask {
 			return m.updateConfirmDeleteSubtask(msg)
+		}
+		if m.mode == modeConfirmDeleteNote {
+			return m.updateConfirmDeleteNote(msg)
 		}
 		if m.mode == modeJournalConfirmHide {
 			return m.updateJournalConfirmHide(msg)
@@ -460,74 +477,140 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 
-		// When detail panel is focused, keys operate on subtasks.
+		// When detail panel is focused, keys operate on subtasks or notes.
 		if m.focusedPanel == 1 {
 			selected := m.selectedTask()
-			switch msg.String() {
-			case "j", "down":
-				if selected != nil && len(selected.Subtasks) > 0 {
-					if m.subtaskIdx < len(selected.Subtasks)-1 {
-						m.subtaskIdx++
+
+			// Note mode: n toggles between subtask and note navigation.
+			if key.Matches(msg, keys.Note) {
+				if selected != nil {
+					m.notesFocused = !m.notesFocused
+					if m.notesFocused {
+						m.noteIdx = 0
 					}
-					m.updateDetail()
-				}
-				return m, nil
-			case "k", "up":
-				if m.subtaskIdx > 0 {
-					m.subtaskIdx--
 					m.updateDetail()
 				}
 				return m, nil
 			}
-			// Context-sensitive: a/e/d/s operate on subtasks when detail is focused.
-			switch {
-			case key.Matches(msg, keys.Add):
-				if selected != nil {
-					m.formData = &ui.TaskFormData{}
-					m.form = ui.SubtaskForm(&m.formData.Title)
-					m.mode = modeSubtask
-					return m, m.form.Init()
-				}
+
+			// Esc in note focus returns to subtask focus (not panel 1).
+			if m.notesFocused && msg.String() == "esc" {
+				m.notesFocused = false
+				m.updateDetail()
 				return m, nil
-			case key.Matches(msg, keys.Edit):
-				if selected != nil && m.subtaskIdx >= 0 && m.subtaskIdx < len(selected.Subtasks) {
-					st := selected.Subtasks[m.subtaskIdx]
-					m.formData = &ui.TaskFormData{Title: st.Title}
-					m.form = ui.SubtaskForm(&m.formData.Title)
-					m.mode = modeEditSubtask
-					return m, m.form.Init()
-				}
-				return m, nil
-			case key.Matches(msg, keys.Delete):
-				if selected != nil && m.subtaskIdx >= 0 && m.subtaskIdx < len(selected.Subtasks) {
-					m.mode = modeConfirmDeleteSubtask
-				}
-				return m, nil
-			case key.Matches(msg, keys.Status):
-				if selected != nil && m.subtaskIdx >= 0 && m.subtaskIdx < len(selected.Subtasks) {
-					st := selected.Subtasks[m.subtaskIdx]
-					if err := m.store.ToggleSubtask(st.ID); err != nil {
-						return m, m.setError(err)
+			}
+
+			// When notes are focused, operate on notes.
+			if m.notesFocused {
+				switch msg.String() {
+				case "j", "down":
+					if selected != nil && len(selected.Notes) > 0 {
+						if m.noteIdx < len(selected.Notes)-1 {
+							m.noteIdx++
+						}
+						m.updateDetail()
 					}
-					if err := m.reload(); err != nil {
-						return m, m.setError(err)
+					return m, nil
+				case "k", "up":
+					if m.noteIdx > 0 {
+						m.noteIdx--
+						m.updateDetail()
 					}
-					return m, m.setStatus("Subtask toggled")
+					return m, nil
 				}
-				return m, nil
-			case key.Matches(msg, keys.TimeLog):
-				if selected != nil {
-					m.timeLogFormData = &ui.TimeLogFormData{}
-					m.form = ui.TimeLogForm(m.timeLogFormData)
-					m.mode = modeTimeLog
-					return m, m.form.Init()
+				switch {
+				case key.Matches(msg, keys.Add):
+					if selected != nil {
+						m.noteFormData = &ui.NoteFormData{}
+						m.form = ui.NoteForm(m.noteFormData)
+						m.mode = modeNoteAdd
+						return m, m.form.Init()
+					}
+					return m, nil
+				case key.Matches(msg, keys.Edit):
+					if selected != nil && m.noteIdx >= 0 && m.noteIdx < len(selected.Notes) {
+						n := selected.Notes[m.noteIdx]
+						m.noteFormData = &ui.NoteFormData{Body: n.Body}
+						m.form = ui.NoteForm(m.noteFormData)
+						m.mode = modeNoteEdit
+						return m, m.form.Init()
+					}
+					return m, nil
+				case key.Matches(msg, keys.Delete):
+					if selected != nil && m.noteIdx >= 0 && m.noteIdx < len(selected.Notes) {
+						m.mode = modeConfirmDeleteNote
+					}
+					return m, nil
 				}
-				return m, nil
-			case key.Matches(msg, keys.Blocker):
-				if selected != nil {
-					m.mode = modeBlockerPicker
+				// Fall through for global keys (q, ?, Tab, etc.)
+			} else {
+				// Subtask navigation (default detail panel behavior).
+				switch msg.String() {
+				case "j", "down":
+					if selected != nil && len(selected.Subtasks) > 0 {
+						if m.subtaskIdx < len(selected.Subtasks)-1 {
+							m.subtaskIdx++
+						}
+						m.updateDetail()
+					}
+					return m, nil
+				case "k", "up":
+					if m.subtaskIdx > 0 {
+						m.subtaskIdx--
+						m.updateDetail()
+					}
+					return m, nil
 				}
-				return m, nil
+				// Context-sensitive: a/e/d/s operate on subtasks when detail is focused.
+				switch {
+				case key.Matches(msg, keys.Add):
+					if selected != nil {
+						m.formData = &ui.TaskFormData{}
+						m.form = ui.SubtaskForm(&m.formData.Title)
+						m.mode = modeSubtask
+						return m, m.form.Init()
+					}
+					return m, nil
+				case key.Matches(msg, keys.Edit):
+					if selected != nil && m.subtaskIdx >= 0 && m.subtaskIdx < len(selected.Subtasks) {
+						st := selected.Subtasks[m.subtaskIdx]
+						m.formData = &ui.TaskFormData{Title: st.Title}
+						m.form = ui.SubtaskForm(&m.formData.Title)
+						m.mode = modeEditSubtask
+						return m, m.form.Init()
+					}
+					return m, nil
+				case key.Matches(msg, keys.Delete):
+					if selected != nil && m.subtaskIdx >= 0 && m.subtaskIdx < len(selected.Subtasks) {
+						m.mode = modeConfirmDeleteSubtask
+					}
+					return m, nil
+				case key.Matches(msg, keys.Status):
+					if selected != nil && m.subtaskIdx >= 0 && m.subtaskIdx < len(selected.Subtasks) {
+						st := selected.Subtasks[m.subtaskIdx]
+						if err := m.store.ToggleSubtask(st.ID); err != nil {
+							return m, m.setError(err)
+						}
+						if err := m.reload(); err != nil {
+							return m, m.setError(err)
+						}
+						return m, m.setStatus("Subtask toggled")
+					}
+					return m, nil
+				case key.Matches(msg, keys.TimeLog):
+					if selected != nil {
+						m.timeLogFormData = &ui.TimeLogFormData{}
+						m.form = ui.TimeLogForm(m.timeLogFormData)
+						m.mode = modeTimeLog
+						return m, m.form.Init()
+					}
+					return m, nil
+				case key.Matches(msg, keys.Blocker):
+					if selected != nil {
+						m.mode = modeBlockerPicker
+					}
+					return m, nil
+				}
 			}
 			// Other keys (q, ?, Tab, /, F1-F3) fall through to normal handling.
 		}
@@ -550,6 +633,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				dueStr = selected.DueDate.Format(time.DateOnly)
 			}
 			recurFreq := selected.RecurFreq.String()
+			// Format metadata as newline-delimited "key=value" pairs.
+			var metaParts []string
+			for k, v := range selected.Metadata {
+				metaParts = append(metaParts, k+"="+v)
+			}
+			// Format blocks as "1, 2, 3" (task IDs this task blocks).
+			var blocksParts []string
+			for _, bid := range selected.BlocksIDs {
+				blocksParts = append(blocksParts, strconv.FormatInt(bid, 10))
+			}
 			m.formData = &ui.TaskFormData{
 				Title:       selected.Title,
 				Description: selected.Description,
@@ -557,6 +650,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				DueDate:     dueStr,
 				Tags:        strings.Join(selected.Tags, ", "),
 				RecurFreq:   recurFreq,
+				Metadata:    strings.Join(metaParts, "\n"),
+				Blocks:      strings.Join(blocksParts, ", "),
 			}
 			m.form = ui.EditTaskForm(m.formData)
 			m.mode = modeEdit
@@ -658,6 +753,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.list, cmd = m.list.Update(msg)
 		if m.list.Index() != prevIndex {
 			m.subtaskIdx = 0
+			m.noteIdx = 0
+			m.notesFocused = false
 			m.updateDetail()
 		}
 		m.list.SetShowFilter(m.list.FilterState() == list.Filtering || m.list.FilterState() == list.FilterApplied)
@@ -744,7 +841,7 @@ func (m Model) View() string {
 	timerStr := m.focusTimerStr()
 
 	// Status bar.
-	statusBar := ui.RenderStatusBar(allCount, doneCount, activeCount, m.width, m.statusMsg, m.focusedPanel, m.activeTab, timerStr, m.undoAction != nil)
+	statusBar := ui.RenderStatusBar(allCount, doneCount, activeCount, m.width, m.statusMsg, m.focusedPanel, m.activeTab, timerStr, m.undoAction != nil, m.notesFocused)
 
 	// Combine all sections.
 	var sections []string
@@ -805,6 +902,34 @@ func (m Model) View() string {
 				lipgloss.WithWhitespaceForeground(ui.OverlayDim))
 		}
 
+	case modeNoteAdd, modeNoteEdit:
+		if m.form != nil {
+			title := "Add Note"
+			if m.mode == modeNoteEdit {
+				title = "Edit Note"
+			}
+			formView := m.form.View()
+			dialogContent := lipgloss.NewStyle().Bold(true).Foreground(ui.White).Render(title) + "\n\n" + formView
+			dialog := dialogStyle().Render(dialogContent)
+			view = lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, dialog,
+				lipgloss.WithWhitespaceChars(" "),
+				lipgloss.WithWhitespaceForeground(ui.OverlayDim))
+		}
+
+	case modeConfirmDeleteNote:
+		selected := m.selectedTask()
+		noteBody := ""
+		if selected != nil && m.noteIdx >= 0 && m.noteIdx < len(selected.Notes) {
+			noteBody = selected.Notes[m.noteIdx].Body
+			if len(noteBody) > 50 {
+				noteBody = noteBody[:50] + "..."
+			}
+		}
+		dialog := ui.RenderConfirmDialogBox("Delete Note?", fmt.Sprintf("Delete \"%s\"?", noteBody))
+		view = lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, dialog,
+			lipgloss.WithWhitespaceChars(" "),
+			lipgloss.WithWhitespaceForeground(ui.OverlayDim))
+
 	case modeFocusSettings:
 		if m.form != nil {
 			formView := m.form.View()
@@ -821,7 +946,18 @@ func (m Model) View() string {
 		if selected != nil {
 			title = selected.Title
 		}
-		dialog := ui.RenderConfirmDialogBox("Delete Task?", fmt.Sprintf("Delete \"%s\"?", title))
+		var dialog string
+		if m.deleteGuardConfirmed {
+			blocksIDs, _ := m.store.ListBlocksIDs(selected.ID)
+			idStrs := make([]string, len(blocksIDs))
+			for i, bid := range blocksIDs {
+				idStrs[i] = fmt.Sprintf("#%d", bid)
+			}
+			dialog = ui.RenderConfirmDialogBox("Delete Blocking Task?",
+				fmt.Sprintf("Task blocks %s.\nDelete and unblock them?", strings.Join(idStrs, ", ")), ui.Yellow)
+		} else {
+			dialog = ui.RenderConfirmDialogBox("Delete Task?", fmt.Sprintf("Delete \"%s\"?", title))
+		}
 		view = lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, dialog,
 			lipgloss.WithWhitespaceChars(" "),
 			lipgloss.WithWhitespaceForeground(ui.OverlayDim))
@@ -915,6 +1051,8 @@ func (m *Model) switchTab() {
 	m.focusedPanel = 0
 	m.subtaskIdx = 0
 	m.entryIdx = 0
+	m.notesFocused = false
+	m.noteIdx = 0
 	if m.activeTab != 3 {
 		m.refreshList()
 		m.updateDetail()

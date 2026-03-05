@@ -418,7 +418,7 @@ func (m Model) viewJournal(header string) string {
 		}
 	}
 	timerStr := m.focusTimerStr()
-	statusBar := ui.RenderStatusBar(noteCount, todayEntryCount, 0, m.width, m.statusMsg, m.focusedPanel, 3, timerStr, m.undoAction != nil)
+	statusBar := ui.RenderStatusBar(noteCount, todayEntryCount, 0, m.width, m.statusMsg, m.focusedPanel, 3, timerStr, m.undoAction != nil, false)
 
 	return lipgloss.JoinVertical(lipgloss.Left, header, content, statusBar)
 }
