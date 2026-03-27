@@ -321,6 +321,16 @@ Database at `~/.todo-app/todo.db` with tables:
 
 ---
 
+## Release Process
+
+When creating a new tag and pushing a release:
+1. Create the git tag and push it (`git tag vX.Y.Z && git push origin vX.Y.Z`)
+2. Update `CHANGELOG.md` with the new version entry
+3. **Always associate release notes** using `gh release edit vX.Y.Z --notes "..."` so the GitHub Releases page stays in sync with the changelog
+4. Use `gh release list` to verify all releases have notes
+
+---
+
 ## Core Principles
 
 - **Simplicity First**: Make every change as simple as possible

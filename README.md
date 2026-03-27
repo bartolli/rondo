@@ -45,6 +45,7 @@
 - [Development](#development)
 - [Architecture](#architecture)
 - [Claude Code Integration](#claude-code-integration)
+- [Changelog](#changelog)
 - [License](#license)
 
 ## Install
@@ -431,6 +432,10 @@ Once installed, Claude Code automatically uses rondo when you mention tasks, tod
 [Huh](https://github.com/charmbracelet/huh) (forms) ·
 [Cobra](https://github.com/spf13/cobra) (CLI) ·
 [modernc.org/sqlite](https://pkg.go.dev/modernc.org/sqlite) (database)
+
+## Changelog
+
+See [CHANGELOG.md](CHANGELOG.md) for the full release history.
 
 ## License
 
