@@ -209,16 +209,26 @@ func RenderDetail(t *task.Task, width int, subtaskIdx int, detailFocused bool, n
 
 // RenderJournalDetail renders the journal note detail panel content.
 // entryIdx indicates which entry has the cursor. detailFocused controls whether the cursor is shown.
-func RenderJournalDetail(note *journal.Note, width int, entryIdx int, detailFocused bool, cfg config.Config) string {
+// JournalDetailResult holds rendered content and the line offset of the selected entry.
+type JournalDetailResult struct {
+	Content          string
+	SelectedEntryLine int // line number where the selected entry starts (-1 if none)
+}
+
+func RenderJournalDetail(note *journal.Note, width int, entryIdx int, detailFocused bool, cfg config.Config) JournalDetailResult {
 	if note == nil {
-		return lipgloss.NewStyle().
-			Foreground(Gray).
-			Align(lipgloss.Center).
-			Width(width).
-			Render("\n\n\nSelect a note to view entries")
+		return JournalDetailResult{
+			Content: lipgloss.NewStyle().
+				Foreground(Gray).
+				Align(lipgloss.Center).
+				Width(width).
+				Render("\n\n\nSelect a note to view entries"),
+			SelectedEntryLine: -1,
+		}
 	}
 
 	var sections []string
+	selectedLine := -1
 
 	// Date title.
 	dateTitle := titleStyle().Render(cfg.FormatDetailDate(note.Date))
@@ -232,10 +242,14 @@ func RenderJournalDetail(note *journal.Note, width int, entryIdx int, detailFocu
 	if len(note.Entries) == 0 {
 		sections = append(sections, lipgloss.NewStyle().Foreground(Gray).Render("No entries yet. Press 'a' to add one."))
 	} else {
+		lineCount := 2 // date title + blank line
 		separator := lipgloss.NewStyle().Foreground(DimGray).Render(
 			strings.Repeat("─ ", width/4),
 		)
 		for i, entry := range note.Entries {
+			if detailFocused && i == entryIdx {
+				selectedLine = lineCount
+			}
 			prefix := "  "
 			if detailFocused && i == entryIdx {
 				prefix = lipgloss.NewStyle().Foreground(Cyan).Render("▸ ")
@@ -243,16 +257,23 @@ func RenderJournalDetail(note *journal.Note, width int, entryIdx int, detailFocu
 			ts := cfg.FormatTime(entry.CreatedAt)
 			timestamp := prefix + lipgloss.NewStyle().Bold(true).Foreground(Cyan).Render(ts)
 			sections = append(sections, timestamp)
-			sections = append(sections, "  "+RenderMarkdown(entry.Body, width-4))
+			lineCount++
+			body := "  " + RenderMarkdown(entry.Body, width-4)
+			sections = append(sections, body)
+			lineCount += strings.Count(body, "\n") + 1
 			if i < len(note.Entries)-1 {
 				sections = append(sections, "")
 				sections = append(sections, separator)
 				sections = append(sections, "")
+				lineCount += 3
 			}
 		}
 	}
 
-	return strings.Join(sections, "\n")
+	return JournalDetailResult{
+		Content:          strings.Join(sections, "\n"),
+		SelectedEntryLine: selectedLine,
+	}
 }
 
 func renderProgressBar(done, total, width int) string {

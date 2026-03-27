@@ -362,9 +362,35 @@ func (m *Model) refreshJournalList() {
 
 func (m *Model) updateJournalDetail() {
 	note := m.selectedNote()
-	content := ui.RenderJournalDetail(note, m.journalViewport.Width, m.entryIdx, m.focusedPanel == 1, m.cfg)
-	m.journalViewport.SetContent(content)
-	m.journalViewport.GotoTop()
+	result := ui.RenderJournalDetail(note, m.journalViewport.Width, m.entryIdx, m.focusedPanel == 1, m.cfg)
+	m.journalViewport.SetContent(result.Content)
+
+	if result.SelectedEntryLine < 0 {
+		m.journalViewport.GotoTop()
+		return
+	}
+
+	// Scroll so the selected entry is visible with a small margin.
+	vpHeight := m.journalViewport.Height
+	margin := 2
+	target := result.SelectedEntryLine - margin
+	if target < 0 {
+		target = 0
+	}
+	maxOffset := m.journalViewport.TotalLineCount() - vpHeight
+	if maxOffset < 0 {
+		maxOffset = 0
+	}
+	if target > maxOffset {
+		target = maxOffset
+	}
+
+	// Only adjust scroll if the selected entry is outside the visible area.
+	currentTop := m.journalViewport.YOffset
+	currentBottom := currentTop + vpHeight
+	if result.SelectedEntryLine < currentTop+margin || result.SelectedEntryLine >= currentBottom-margin {
+		m.journalViewport.SetYOffset(target)
+	}
 }
 
 // viewJournal renders the journal tab content (both panels + status bar).
